@@ -731,3 +731,19 @@ def test_package_exports_image_search_tool():
     from deerflow.community.brave.tools import image_search_tool as direct_image_search_tool
 
     assert image_search_tool is direct_image_search_tool
+
+
+class TestCoerceMaxResults:
+    def test_rejects_boolean_and_fractional_values(self):
+        from deerflow.community.brave.tools import _coerce_max_results
+
+        assert _coerce_max_results(True) == 5
+        assert _coerce_max_results(3.5) == 5
+        # An integral float such as 3.0 remains valid; only booleans and
+        # non-integral floats are rejected before int() truncates them.
+        assert _coerce_max_results(3.0) == 3
+
+    def test_falls_back_on_non_integral_overflow(self):
+        from deerflow.community.brave.tools import _coerce_max_results
+
+        assert _coerce_max_results(float("inf")) == 5

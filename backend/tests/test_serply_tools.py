@@ -123,6 +123,20 @@ class TestCoerceMaxResults:
         assert _coerce_max_results(0) == 5
         assert _coerce_max_results(-3) == 5
 
+    def test_rejects_boolean_and_fractional_values(self):
+        from deerflow.community.serply.tools import _coerce_max_results
+
+        assert _coerce_max_results(True) == 5
+        assert _coerce_max_results(3.5) == 5
+        # An integral float such as 3.0 remains valid; only booleans and
+        # non-integral floats are rejected before int() truncates them.
+        assert _coerce_max_results(3.0) == 3
+
+    def test_falls_back_on_non_integral_overflow(self):
+        from deerflow.community.serply.tools import _coerce_max_results
+
+        assert _coerce_max_results(float("inf")) == 5
+
 
 class TestCoerceVertical:
     def test_accepts_known_verticals(self):
