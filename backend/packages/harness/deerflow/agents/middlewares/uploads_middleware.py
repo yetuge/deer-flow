@@ -6,6 +6,7 @@ on demand via the ``list_uploaded_files`` tool.
 
 import logging
 from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 from typing import NotRequired, override
 
@@ -297,11 +298,11 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         else:
             updated_content = original_content
 
-        updated_message = HumanMessage(
-            content=updated_content,
-            id=last_message.id,
-            name=last_message.name,
-            additional_kwargs=additional_kwargs,
+        updated_message = last_message.model_copy(
+            update={
+                "content": deepcopy(updated_content),
+                "additional_kwargs": additional_kwargs,
+            },
         )
 
         messages[last_message_index] = updated_message

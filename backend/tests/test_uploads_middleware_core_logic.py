@@ -435,6 +435,52 @@ class TestBeforeAgent:
         assert updated_kwargs.get("files") == files_meta
         assert updated_kwargs.get("element") == "task"
 
+    def test_preserves_other_message_fields_on_updated_message(self, tmp_path):
+        # The rebuild must not drop fields it does not touch: a hand-built
+        # constructor call silently loses response_metadata and everything
+        # outside content/id/name/additional_kwargs. The rest of the middleware
+        # package rebuilds with model_copy for exactly this reason.
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "img.png").write_bytes(b"png")
+
+        files_meta = [{"filename": "img.png", "size": 3, "path": "/mnt/user-data/uploads/img.png", "status": "uploaded"}]
+        msg = HumanMessage(
+            content="check image",
+            id="msg-1",
+            name="user",
+            additional_kwargs={"files": files_meta},
+            response_metadata={"source": "gateway"},
+        )
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        updated = result["messages"][-1]
+        assert updated.response_metadata == {"source": "gateway"}
+        assert updated.id == "msg-1"
+        assert updated.name == "user"
+        assert updated.additional_kwargs.get("files") == files_meta
+
+    def test_rebuilt_message_does_not_alias_the_original_content(self, tmp_path):
+        # The list-content path builds [<current_uploads> block, *original],
+        # which reuses the original's block objects by reference. The rebuild
+        # must copy them: otherwise mutating a block on the injected message
+        # would write through to the message retained in thread state.
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "img.png").write_bytes(b"png")
+
+        files_meta = [{"filename": "img.png", "size": 3, "path": "/mnt/user-data/uploads/img.png", "status": "uploaded"}]
+        original_block = {"type": "text", "text": "check image"}
+        msg = HumanMessage(content=[original_block], additional_kwargs={"files": files_meta})
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        updated = result["messages"][-1]
+        assert isinstance(updated.content, list)
+        updated.content[1]["text"] = "MUTATED"
+        assert msg.content[0]["text"] == "check image"
+
     def test_preserves_original_user_content_before_upload_context(self, tmp_path):
         mw = _middleware(tmp_path)
         uploads_dir = _uploads_dir(tmp_path)
