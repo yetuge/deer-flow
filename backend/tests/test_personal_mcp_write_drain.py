@@ -1,8 +1,7 @@
 """Personal MCP config mutations drain across handler cancellation.
 
-The gateway convention (managed subagents, managed models, custom skills,
-agents router) is that a client disconnect must not cancel a queued
-persistence worker or silently drop its failure. All four personal-config
+When a request handler is cancelled, queued persistence work must still run
+and worker failures must still be logged. All four personal-config
 mutations funnel through ``_write`` -> ``_drained_mutation``; the read stays
 bare because abandoning it loses nothing.
 """

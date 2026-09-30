@@ -59,7 +59,7 @@ async def test_managed_subagent_writes_route_through_mutation_drain(monkeypatch,
     store = Store()
     calls: list[tuple[object, tuple[object, ...]]] = []
 
-    async def drained(func, /, *args, **kwargs):
+    async def drained(func, /, *args, expected_errors=(), **kwargs):
         calls.append((func, args))
         return func(*args, **kwargs)
 

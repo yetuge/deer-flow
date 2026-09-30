@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from app.gateway.deps import is_admin_user, require_admin_user
+from app.gateway.utils import run_drained_write
 from deerflow.config.app_config import get_app_config
 from deerflow.persistence.managed_subagents import (
     ManagedSubagentDefinition,
@@ -21,9 +23,9 @@ from deerflow.persistence.managed_subagents.base import (
     normalize_managed_subagent_name,
 )
 from deerflow.subagents.builtins import BUILTIN_SUBAGENTS
-from deerflow.utils.file_io import await_drained
 
 router = APIRouter(prefix="/api/subagents", tags=["subagents"])
+logger = logging.getLogger(__name__)
 _ADMIN_REQUIRED_DETAIL = "Admin privileges are required to manage subagents."
 
 
@@ -76,9 +78,15 @@ class ManagedSubagentUpdateRequest(BaseModel):
     enabled: bool | None = None
 
 
-async def _run_store_mutation[**P, T](func: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
-    """Drain persistent managed-subagent writes before cancellation propagates."""
-    return await await_drained(asyncio.to_thread(func, *args, **kwargs))
+async def _run_store_mutation[**P, T](
+    func: Callable[P, T],
+    /,
+    *args: P.args,
+    expected_errors: tuple[type[Exception], ...] = (),
+    **kwargs: P.kwargs,
+) -> T:
+    """Drain managed-subagent writes and log unexpected worker failures."""
+    return await run_drained_write(logger, "Managed subagent write", func, *args, expected_errors=expected_errors, **kwargs)
 
 
 def _validate_model(model: str, app_config) -> None:
@@ -187,7 +195,7 @@ async def create_managed_subagent(request: Request, body: ManagedSubagentCreateR
         raise HTTPException(status_code=409, detail=f"Subagent name '{definition.name}' is reserved by a built-in or config.yaml definition.")
     store = get_managed_subagent_store(app_config)
     try:
-        await _run_store_mutation(store.create, definition)
+        await _run_store_mutation(store.create, definition, expected_errors=(ManagedSubagentExistsError,))
     except ManagedSubagentExistsError:
         raise HTTPException(status_code=409, detail=f"Managed subagent '{definition.name}' already exists")
     return SubagentResponse(
@@ -218,7 +226,7 @@ async def update_managed_subagent(name: str, request: Request, body: ManagedSuba
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
     _validate_model(updated.model, app_config)
     try:
-        await _run_store_mutation(store.update, updated)
+        await _run_store_mutation(store.update, updated, expected_errors=(FileNotFoundError,))
     except FileNotFoundError:
         # The definition may be deleted by another administrator after the
         # read above. Preserve the endpoint's not-found contract instead of
